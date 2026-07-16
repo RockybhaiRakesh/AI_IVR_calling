@@ -1,123 +1,176 @@
-# Twilio IVR Admission System
+# 📞 AI-Powered IVR Calling & Voice Streaming System
 
-This project is a **Flask-based IVR (Interactive Voice Response) system** for collecting student admission details via phone calls using Twilio. It records responses, saves them locally, and maintains an in-memory student data store.
+An advanced, enterprise-grade telephony platform featuring a **hybrid architecture** that combines a **Real-Time Conversational AI Voice Agent** (FastAPI + WebSockets + OpenAI Realtime API) with a structured **Interactive Voice Response (IVR) Data Collector** (Flask + Twilio Voice).
 
----
-
-## Features
-
-- Make outbound calls to students automatically.
-- Interactive IVR with speech recording.
-- Collects:
-  - Program of interest
-  - Hostel requirement
-  - Scholarship interest
-  - Name
-  - Age
-- Stores recordings locally.
-- Logs collected student data with timestamps.
+This system allows businesses to either engage customers in sub-second latency, human-like voice conversations, or conduct highly structured automated phone surveys with local recording extraction.
 
 ---
 
-## Prerequisites
+## 🏗️ System Architecture
 
-1. Python 3.8+
-2. Twilio Account  
-   - [Sign up for Twilio](https://www.twilio.com/try-twilio)
-3. Flask and dependencies:
+### ⚡ 1. Real-Time AI Voice Streaming (FastAPI + WebSockets)
+This flow leverages bi-directional WebSockets to stream microphone and telephony audio directly between the phone call (Twilio) and OpenAI's GPT-4o Realtime API, achieving sub-second latency with natural voice interruptions.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer as User (Phone Call)
+    participant Twilio as Twilio Gateway
+    participant FastAPI as FastAPI Server (Local/Ngrok)
+    participant OpenAI as OpenAI Realtime API
+
+    Note over Customer, Twilio: Call is initiated/answered
+    Twilio->>FastAPI: POST /outgoing-call (Returns <Connect><Stream>)
+    Twilio-->>FastAPI: Open WebSocket Connection (/media-stream)
+    FastAPI-->>OpenAI: Open WebSocket Connection (wss://api.openai.com)
+    FastAPI->>OpenAI: Send Session Config (g711_ulaw, system prompt)
+
+    loop Duplex Audio Streaming
+        Customer->>Twilio: Speaks into microphone
+        Twilio->>FastAPI: Binary Audio Packets (G.711 μ-law)
+        FastAPI->>OpenAI: Forward audio payload (input_audio_buffer.append)
+        OpenAI->>FastAPI: Stream response audio (response.audio.delta)
+        FastAPI->>Twilio: Forward audio payload (media event)
+        Twilio->>Customer: Plays AI-generated voice response
+    end
+```
+
+### 📋 2. Traditional Structured IVR Collector (Flask)
+This flow is a deterministic survey collector that prompts the user step-by-step using Twilio's `<Gather>` and `<Record>` elements, downloads raw audio files, and maintains session states.
+
+```mermaid
+graph TD
+    Start([Initiate Call /make_call]) --> Welcome[Voice Prompt: Press 1 to start]
+    Welcome -->|Key Press Gather| Choice{Digit == 1?}
+    Choice -->|No / Timeout| Hangup[Say goodbye & Hangup]
+    Choice -->|Yes| Program[Record Program of Interest]
+    
+    Program -->|Save WAV & Callback| Hostel[Record Hostel Preference]
+    Hostel -->|Save WAV & Callback| Scholarship[Record Scholarship Interest]
+    Scholarship -->|Save WAV & Callback| Name[Record Full Name]
+    Name -->|Save WAV & Callback| Age[Record Age]
+    
+    Age -->|Save WAV & Callback| Store[Log Session Object to DB]
+    Store --> End([Completed & Hangup])
+```
+
+---
+
+## 🌟 Core Features
+
+| Feature | Real-Time Voice Agent (`api.py`) | Structured IVR Collector (`call_app.py`) |
+| :--- | :--- | :--- |
+| **Framework** | FastAPI (`asyncio` + `aiohttp`) | Flask (Synchronous WSGI) |
+| **AI Model** | OpenAI Real-Time API (`gpt-4o-realtime`) | Deterministic Rule-Based TwiML |
+| **Latency** | Sub-second (~300ms, human-like) | N/A (Standard menu-response) |
+| **Communication Channel** | Bi-directional WebSockets (`wss://`) | HTTP Webhooks / XML (TwiML) |
+| **Data Handling** | Live audio duplex streaming | Local `.wav` download to storage |
+| **Key Use Cases** | Customer Support, Live Sales, Conversational Agents | Admissions Surveys, Data Entry, Automated Forms |
+
+---
+
+## 🛠️ Tech Stack & Dependencies
+
+- **Telephony Infrastructure:** Twilio Voice API (TwiML, Media Streams, REST Client)
+- **Real-Time WebSocket Server:** FastAPI, Uvicorn, WebSockets, `aiohttp`, `asyncio`
+- **Data Capture Webhook Server:** Flask, Requests (with HTTPBasicAuth)
+- **AI Core:** OpenAI Realtime Gateway API (`wss://api.openai.com/v1/realtime`)
+- **Environment Management:** Python-dotenv, OS Path management
+
+---
+
+## 🚀 Setup & Installation
+
+### 1. Clone & Install Dependencies
 ```bash
-pip install Flask twilio requests
-Environment variables:
+git clone https://github.com/RockybhaiRakesh/AI_IVR_calling.git
+cd AI_IVR_calling
+pip install fastapi uvicorn websockets aiohttp requests Flask twilio python-dotenv
+```
 
-bash
-Copy code
-TWILIO_ACCOUNT_SID=your_account_sid
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_PHONE_NUMBER=your_twilio_number
-Setup
-Clone the repository:
+### 2. Configure Environment Variables
+Create a `.env` file in the root directory:
+```env
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone_number
+OPENAI_API_KEY=your_openai_api_key
+NGROK_URL=https://your-ngrok-subdomain.ngrok-free.app
+PORT=5000
+```
 
-bash
-Copy code
-git clone <repository-url>
-cd <repository-folder>
-Set up your environment variables:
+### 3. Expose Your Local Server
+Twilio requires a public URL to send webhooks. Use Ngrok to expose your local port:
+```bash
+ngrok http 5000
+```
+*Copy the generated HTTPS URL and paste it as `NGROK_URL` in your `.env`.*
 
-bash
-Copy code
-export TWILIO_ACCOUNT_SID="ACxxxxxx"
-export TWILIO_AUTH_TOKEN="your_auth_token"
-export TWILIO_PHONE_NUMBER="+1XXXXXXXXXX"
-On Windows (PowerShell):
+---
 
-powershell
-Copy code
-setx TWILIO_ACCOUNT_SID "ACxxxxxx"
-setx TWILIO_AUTH_TOKEN "your_auth_token"
-setx TWILIO_PHONE_NUMBER "+1XXXXXXXXXX"
-Create a folder to store recordings:
+## 🖥️ Running the Services
 
-bash
-Copy code
-mkdir recordings
-Update local_folder path in app.py if necessary:
+### Option A: Running the OpenAI Real-Time Voice Agent (FastAPI)
+Run the asynchronous real-time server using Uvicorn:
+```bash
+python api.py
+```
+This boots up the FastAPI server on `http://0.0.0.0:5000`.
 
-python
-Copy code
-local_folder = r"C:\Users\YourName\recordings"
-Running the Application
-Start the Flask server:
+#### API Endpoints (FastAPI):
+1. **Trigger Outgoing AI Call:**
+   - **Method:** `POST /make-call`
+   - **Payload:** `{"to": "+91XXXXXXXXXX"}`
+   - **Description:** Triggers Twilio to dial the destination and connect the media stream.
+2. **WebSocket Stream Endpoint:**
+   - **URI:** `ws://<your-ngrok-url>/media-stream`
+   - **Description:** Handles real-time multiplexed binary audio payloads (G.711 μ-law) between Twilio and OpenAI.
 
-bash
-Copy code
+---
+
+### Option B: Running the Structured Survey Collector (Flask)
+Run the synchronous Flask app:
+```bash
 python call_app.py
-The server will run at: http://127.0.0.1:5000
+```
 
-API Endpoints
-1. Make a Call
-vbnet
-Copy code
-GET /make_call?to=+91XXXXXXXXXX
-to: The phone number of the student (with country code).
+#### API Endpoints (Flask):
+1. **Trigger Outbound Survey Call:**
+   - **Method:** `GET /make_call?to=+91XXXXXXXXXX`
+2. **TwiML Entrypoint:**
+   - **Method:** `POST /voice` (Answers call and plays the greeting menu).
+3. **Key Press Receiver:**
+   - **Method:** `POST /gather_input` (Validates user input to begin recording).
+4. **Recording Extractor Webhook:**
+   - **Method:** `POST /save_response?field=<field_name>` (Pulls raw audio from Twilio's CDN and saves it locally in `.wav` format).
 
-2. IVR Flow
-/voice – Initial IVR greeting.
+---
 
-/gather_input – Handles key press input from IVR.
+## 📂 File Extraction & Data Storage (Flask Flow)
+Every voice response is fetched from Twilio's media servers and cached locally in a folder named `recordings/`.
 
-/save_response?field=<field_name> – Saves recorded responses.
+**Example Saved Files:**
+- `recordings/CAxxxxxx_program.wav`
+- `recordings/CAxxxxxx_hostel.wav`
+- `recordings/CAxxxxxx_scholarship.wav`
+- `recordings/CAxxxxxx_name.wav`
+- `recordings/CAxxxxxx_age.wav`
 
-Fields collected in order:
+The system records a dictionary mapping each field to its local filepath:
+```json
+{
+  "program_recording_local": "C:\\Users\\...\\recordings\\CAxxx_program.wav",
+  "hostel_recording_local": "C:\\Users\\...\\recordings\\CAxxx_hostel.wav",
+  "scholarship_recording_local": "C:\\Users\\...\\recordings\\CAxxx_scholarship.wav",
+  "name_recording_local": "C:\\Users\\...\\recordings\\CAxxx_name.wav",
+  "age_recording_local": "C:\\Users\\...\\recordings\\CAxxx_age.wav",
+  "collected_at": "2026-07-16T19:00:00Z"
+}
+```
 
-Program (program)
+---
 
-Hostel requirement (hostel)
-
-Scholarship (scholarship)
-
-Name (name)
-
-Age (age)
-
-Data Storage
-In-memory dictionary for student responses: student_data.
-
-Recordings stored locally in recordings folder.
-
-Each file named as <CallSID>_<field>.wav.
-
-Example:
-
-makefile
-Copy code
-C:\Users\YourName\recordings\CA1234567890_program.wav
-Logging
-All call actions and recorded files are logged using Python’s logging module.
-
-Notes
-This is a development version; do not use in production without proper security measures.
-
-Recording duration is limited via max_length in the code.
-
-Make sure your Twilio number has outbound call capability and sufficient balance.
+## 🔒 Security & Optimization Notes
+- **Local Cache Expiry:** Audio recordings are stored locally; ensure your script runs in a secure sandbox with proper file access controls.
+- **WebSocket Reconnection:** In production, add a retry handler to reconnect websockets if network drops happen.
+- **Billing Warning:** Real-time OpenAI API calls charge per token (input, output, and audio cache). Consider using voice activity detection (VAD) thresholds.
